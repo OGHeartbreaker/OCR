@@ -9,6 +9,15 @@ from PIL import Image, ImageEnhance, ImageFilter
 import pytesseract
 import re
 
+def auto_canny(image, sigma=0.33):
+	v = np.median(image)
+
+	lower = int(max(0,(1.0-sigma)*v))
+	upper = int(min(255,(1.0-sigma)*v))
+	edged = cv2.Canny(image, lower, upper)
+
+	return edged
+
 def winco_receipt_line(line):
 	s = re.search(r'((I|T)F) | ((I|T)x)', line)
 	if( s is None):
@@ -32,31 +41,34 @@ ratio = image.shape[0] / 500.0
 orig = image.copy()
 image = imutils.resize(image, height =500)
 
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+gray = cv2.adaptiveThreshold(image,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,31,2)
+gray = cv2.fastNlMeansDenoising(gray)
 gray = cv2.bilateralFilter(gray, 11, 17, 17)
 gray = cv2.GaussianBlur(gray, (5,5),0)
-#gray = cv2.equalizeHist(gray)
-edged = cv2.Canny(gray, 75, 200)
+#gray = cv2.addWeighted(gray, 1.5, gray, -0.5,0, gray)
+edged = cv2.Canny(gray,75,200)
 
 print("STEP 1")
 cv2.imshow("Edged", edged)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
-cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 cnts = imutils.grab_contours(cnts)
-cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:5]
+cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:10]
 
+screenCnt = None
 for c in cnts:
 	peri = cv2.arcLength(c, True)
 	approx = cv2.approxPolyDP(c, 0.02 * peri, True)
 	if len(approx)==4:
 		screenCnt = approx
 		break
-
-
+	else:
+		screenCnt = approx
 print("Step 2")
-cv2.drawContours(image,[screenCnt],-1,(0,255,0),2)
+cv2.drawContours(image,[screenCnt],-1,(0,255,0),3)
 cv2.imshow("outline", image)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
@@ -88,7 +100,7 @@ im = Image.open(save_filename)
 im = im.filter(ImageFilter.MedianFilter())
 enhancer = ImageEnhance.Contrast(im)
 im = enhancer.enhance(2)
-im = im.convert('1 eng')
+im = im.convert('1')
 st = pytesseract.image_to_string(im, config="-psm 6")
 for cur_line in st.split('\n'):
 	print(cur_line)
